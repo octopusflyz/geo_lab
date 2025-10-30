@@ -1,0 +1,85 @@
+三、作业一
+注意！小作业的基础分数是容易达成的，但对成绩有一定要求的同学需要适度拿取每次作业一些额外的分数。额外的练习也会对同学们大作业的实现有一定帮助。
+1、作业要求
+●利用示例程序或自行编程实现手的运动，并绘制运动结果。
+●可以通过键盘/鼠标输入交互地修改或变换手势。
+●考查知识点：图形变换和基本图形编程知识。
+●编程语言：OpenGL+GLSL
+●作业基础：教师和助教提供基础示例程序工程，包含接口和三 示例工程(Hand) 维模型文件。
+●提交截止时间：2025/10/18 晚 24 点。
+●提交方式：教学网。
+●提交内容：可执行程序文件和完整工程，以及程序使用说明。 
+2、示例工程说明
+●已写好的功能 
+○三维模型的读入与渲染 
+○骨骼动画在顶点着色器中的实现 
+○GLFW 框架下的主循环 
+○纹理映射贴图的读入与绑定 
+●需要完成的功能
+○使指关节角度随时间连续变化
+○例：做出挥手、抓握、前指等动作
+●辅助材料
+○手的结构 https://en.wikipedia.org/wiki/Hand 
+
+○在示例程序中，为了统一表达，用 metacarpals 指代手掌部分的骨骼，大拇指的三段指节改为 proximal/intermediate/distal phalange（与其它手指相同）。故示例程序中手的层次及对应的结构名称如下：
+metacarpals 手掌
+thumb_proximal_phalange 大拇指第一指节
+thumb_intermediate_phalange 大拇指第二指节
+thumb_distal_phalange 大拇指第三指节
+thumb_fingertip 大拇指尖
+index_proximal_phalange 食指……
+index_intermediate_phalange
+index_distal_phalange
+index_fingertip
+middle_proximal_phalange 中指……
+middle_intermediate_phalange
+middle_distal_phalange
+middle_fingertip
+ring_proximal_phalange 无名指……
+ring_intermediate_phalange
+ring_distal_phalange
+ring_fingertip
+pinky_proximal_phalange 小指……
+pinky_intermediate_phalange
+pinky_distal_phalange
+pinky_fingertip
+3、实现方法
+●在主循环中逐帧修改 modifier[手的结构名称] 
+○例：（main.cpp, 198 行） 
+
+○意为将食指(index)第一指节(proximal phalange)的变换矩阵修改为沿局部坐标系下的向量(0, 0, 1)旋转 thumb_angle 个弧度的矩阵。
+○需要注意的是 modifier 中的项是在对应骨骼的局部坐标系下作变 换的矩阵。此时，向量(1, 0, 0)是骨骼的方向（由近心端关节指向远心端关节），向量(0, 0, 1)是近心端关节主要的旋转轴，而手指第一指节亦可沿(0, 1, 0)作小范围的转动。
+4、评分标准(共5分) 
+●利用示例程序完成的作业
+○1 分 – 代码可编译运行 
+○1 分 – 手的模型能正常显示 
+○1 分 – 五根手指都能动 
+○1 分 – 完成 3 个动作（有负面意义的手势不得分） 
+■举例：抓握，挥手，OK，点赞，“手枪”，数字 1-9 
+○1 分 – 有键盘、鼠标交互事件 
+○加分项 – 设计丰富的手势和交互方法 
+●自行编程实现的作业 
+○2 分 – 代码可编译运行 
+○1 分 – 手的可视化结果正常，能看出是一只手 
+○1 分 – 完成 1 个五根手指都运动的动作 
+○1 分 – 有键盘、鼠标交互事件 
+○加分项 – 设计丰富的手势和交互方法 
+●进阶
+○纹理映射贴图
+■如果有自己的手部纹理映射贴图（纹理坐标也应与示例模型对应）， 可以开启宏命令 DIFFUSE_TEXTURE_MAPPING，并在绘制函数调用前绑定纹理。
+○自定义骨骼模型 
+■如果有自己的带骨骼模型，可以通过修改模型读入函数的调用语句 loadScene()来将示例模型替换成它。若要使其运动，须保证模型内的骨骼名称与 modifier 的 key 相对应。 带纹理的模型要记得开启宏命令并绑定纹理。
+○骨骼动画
+■有兴趣的同学可以进一步阅读、修改代码。事实上只需稍加修改 就可以播放在建模软件中设置好的骨骼动画。
+5、平台相关
+●使用 Mac/Linux 的同学可以装上 Windows 10 虚拟机，或在自己的机器上编译依赖库，列表如下：
+○Assimp: https://github.com/assimp/assimp 
+○FreeImage: https://freeimage.sourceforge.io/download.html 
+○GLEW: https://glew.sourceforge.net/ 
+○GLFW:https://www.glfw.org/download.html 
+6、编译细节
+●使用Hand-cmake.v1.zip的同学（建议）
+○使用VSCode/VS结合cmake打开即可正常运行
+●使用Hand.zip的同学
+○可能需要安装Visual C++ Redistributable for Visual Studio 2013
+■https://www.microsoft.com/en-us/download/details.aspx?id=40784 
