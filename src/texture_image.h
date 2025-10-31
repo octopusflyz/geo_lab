@@ -36,7 +36,8 @@
 #include "gl_env.h"
 
 // STB图像库，用于加载图像文件。
-#include <stb_image.h>  // STB库的图像加载功能，支持多种格式。
+#include <stb_image.h>
+#include <tinyexr.h>
 
 namespace TextureImage {  // 定义纹理图像处理的命名空间。
     class Texture {  // 纹理类，负责加载和管理单个纹理。
@@ -51,6 +52,7 @@ namespace TextureImage {  // 定义纹理图像处理的命名空间。
         std::string filename; // 文件名。
         int width;           // 图像宽度。
         int height;          // 图像高度。
+        int channels;        // 图像通道数。
         GLuint tex;          // OpenGL纹理对象ID。
 
         // ===== 私有构造函数，防止外部直接构造 =====
@@ -60,7 +62,7 @@ namespace TextureImage {  // 定义纹理图像处理的命名空间。
 
         // 默认构造函数，初始化成员变量。
         Texture()
-                : available(false), name(), filename(), width(0), height(0), tex(0) {}
+                : available(false), name(), filename(), width(0), height(0), channels(0), tex(0) {}
 
         // 虚析构函数，确保正确清理资源。
         virtual ~Texture() { clear(); }
@@ -72,6 +74,9 @@ namespace TextureImage {  // 定义纹理图像处理的命名空间。
             available = false;  // 标记为不可用。
             name = std::string();  // 清空名称。
             filename = std::string();  // 清空文件名。
+            width = 0;  // 重置宽度。
+            height = 0;  // 重置高度。
+            channels = 0;  // 重置通道数。
             glDeleteTextures(1, &tex);  // 删除OpenGL纹理对象。
             tex = 0;  // 重置纹理ID。
         }
@@ -213,9 +218,122 @@ namespace TextureImage {  // 定义纹理图像处理的命名空间。
             glBindTexture(GL_TEXTURE_2D, tex);  // 绑定纹理。
             return true;  // 返回true表示成功。
         }
-    };  // Texture类结束。
 
-    // ===== 静态成员初始化 =====
-    Texture::Name2Texture Texture::allTexture;  // 全局纹理映射初始化。
-    Texture Texture::error;  // 错误纹理对象初始化。
+        // loadHDRTexture() 函数：加载HDR纹理（用于天空盒）。
+        // 参数：_name - 纹理名称，_filename - 文件名。
+        // 返回：加载的纹理引用，如果失败返回error。
+        static Texture &loadHDRTexture(std::string _name, std::string _filename) {
+            GLenum gl_error_code = GL_NO_ERROR;  // OpenGL错误代码。
+            if ((gl_error_code = glGetError()) != GL_NO_ERROR) {  // 检查之前的OpenGL错误。
+                const GLubyte *errString = glewGetErrorString(gl_error_code);  // 获取错误字符串。
+                std::cout << "ERROR before loadHDRTexture():" << std::endl;  // 输出错误信息。
+                std::cout << errString << std::endl;
+            }
+            std::cout << _name << "<>" << _filename << std::endl;  // 调试输出：名称和文件名。
+            std::cout << "Attempting to load HDR texture from: " << _filename << std::endl;
+
+            FILE *fi = fopen(_filename.c_str(), "r");  // 再次检查文件是否存在。
+            if (fi == NULL) return error;  // 如果文件不存在，返回错误纹理。
+            fclose(fi);  // 关闭文件。
+
+            // 尝试插入新纹理到allTexture映射中。
+            std::pair<Name2Texture::iterator, bool> insertion =
+                    allTexture.insert(Name2Texture::value_type(_name, new Texture()));  // 插入新纹理对象。
+            Texture &target = *(insertion.first->second);  // 获取目标纹理引用。
+            if (!insertion.second) {  // 如果纹理名称已存在。
+                if (target.filename == _filename && target.available) {  // 如果文件名相同且可用。
+                    return target;  // 返回现有纹理。
+                } else {
+                    target.clear();  // 否则清理现有纹理。
+                }
+            }
+
+            target.name = _name;  // 设置纹理名称。
+            target.filename = _filename;  // 设置文件名。
+
+            // 检查文件扩展名，如果是.exr，使用TinyEXR加载，否则使用STB。
+            if (_filename.substr(_filename.find_last_of(".") + 1) == "exr") {
+                // 使用TinyEXR加载EXR文件。
+                float *data = nullptr;  // 图像数据指针。
+                int width, height;  // 图像尺寸。
+                const char *err = nullptr;  // 错误信息。
+
+                // 加载EXR文件。
+                int ret = LoadEXR(&data, &width, &height, _filename.c_str(), &err);  // 加载EXR。
+                if (ret != TINYEXR_SUCCESS) {  // 如果加载失败。
+                    std::cout << "Failed to load EXR image data for " << _name << ": " << err << std::endl;  // 输出错误信息。
+                    if (err) FreeEXRErrorMessage(err);  // 释放错误信息。
+                    target.available = false;  // 标记纹理不可用。
+                    return error;  // 返回失败的纹理对象。
+                }
+
+                target.width = width;  // 设置宽度。
+                target.height = height;  // 设置高度。
+                target.channels = 4;  // EXR通常是RGBA。
+                std::cout << "Loaded HDR texture " << _name << " with " << target.channels << " channels, size " << target.width << "x" << target.height << std::endl;
+
+                // 创建OpenGL纹理对象并设置参数。
+                glGenTextures(1, &target.tex);  // 生成纹理对象。
+                glBindTexture(GL_TEXTURE_2D, target.tex);  // 绑定纹理。
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);  // S轴边缘钳制。
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);  // T轴边缘钳制。
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);  // 放大过滤：线性。
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);  // 缩小过滤：线性。
+
+                // 上传纹理数据到GPU。
+                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, target.width, target.height, 0, GL_RGBA, GL_FLOAT, data);  // 上传数据。
+                glBindTexture(GL_TEXTURE_2D, 0);  // 解绑纹理。
+
+                free(data);  // 释放TinyEXR加载的数据。
+            } else {
+                // 使用STB库加载HDR图像数据（.hdr格式）。
+                stbi_set_flip_vertically_on_load(true);  // 设置图像垂直翻转，因为OpenGL的Y轴方向不同。
+                int channels;  // 图像通道数（1=灰度, 3=RGB, 4=RGBA）。
+                float *data =  // 加载HDR图像数据。
+                        stbi_loadf(_filename.c_str(), &target.width, &target.height, &channels, 0);  // 加载HDR图像。
+                if (!data) {  // 如果加载失败。
+                    std::cout << "Failed to load HDR image data for " << _name << std::endl;
+                    return error;  // 返回错误纹理。
+                }
+                std::cout << "Loaded HDR texture " << _name << " with " << channels << " channels, size " << target.width << "x" << target.height << std::endl;
+
+                // 创建OpenGL纹理对象并设置参数。
+                glGenTextures(1, &target.tex);  // 生成纹理对象。
+                glBindTexture(GL_TEXTURE_2D, target.tex);  // 绑定纹理。
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);  // S轴边缘钳制。
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);  // T轴边缘钳制。
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);  // 放大过滤：线性。
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);  // 缩小过滤：线性。
+
+                // 根据通道数确定OpenGL格式（HDR使用浮点格式）。
+                GLenum format = GL_RGBA;  // 默认RGBA。
+                GLenum internalFormat = GL_RGBA32F;  // 内部格式。
+                if (channels == 1) {  // 单通道（灰度）。
+                    format = GL_RED;
+                    internalFormat = GL_R32F;
+                }
+                if (channels == 3) {  // 三通道（RGB）。
+                    format = GL_RGB;
+                    internalFormat = GL_RGB32F;
+                }
+
+                glTexImage2D(GL_TEXTURE_2D, 0, internalFormat, target.width, target.height,  // 上传纹理数据。
+                             0, format, GL_FLOAT, data);  // 内部格式和数据格式根据channels确定。
+                glBindTexture(GL_TEXTURE_2D, 0);  // 解绑纹理。
+
+                stbi_image_free(data);  // 释放STB加载的图像数据。
+            }
+
+            // 检查OpenGL错误。
+            if ((gl_error_code = glGetError()) != GL_NO_ERROR) {  // 如果有错误。
+                const GLubyte *errString = glewGetErrorString(gl_error_code);  // 获取错误字符串。
+                std::cout << "ERROR in loadHDRTexture() for " << _name << ":" << std::endl;  // 输出错误信息。
+                std::cout << "Error code: " << gl_error_code << ", " << errString << std::endl;
+                return error;  // 返回错误纹理。
+            }
+
+            target.available = true;  // 标记纹理为可用。
+            return target;  // 返回加载的纹理。
+        }
+    };  // Texture类结束。
 }  // TextureImage命名空间结束。

@@ -22,6 +22,7 @@
 #include <glm/gtc/quaternion.hpp>  // GLM库的四元数头文件，用于四元数操作。
 
 #include "texture_image.h"  // 纹理图像加载器头文件，用于加载和绑定纹理。
+#include "skybox.h"  // 天空盒渲染器头文件。
 
 namespace SkeletalAnimation {  // 定义一个命名空间，包含骨骼动画相关的着色器代码。
     const char *vertex_shader_330 =  // 顶点着色器代码，使用GLSL 3.30版本。
@@ -91,6 +92,7 @@ static float camera_distance = glm::length(camera_eye - camera_center);  // 相�
 static float camera_yaw = atan2(camera_eye.x - camera_center.x, camera_eye.z - camera_center.z);  // 水平旋转角度 (Horizontal rotation angle)
 static float camera_pitch = asin((camera_eye.y - camera_center.y) / camera_distance);  // 垂直旋转角度 (Vertical rotation angle)
 static bool camera_locked = true;  // 是否锁定相机位置 (Lock camera position)
+static float camera_max_distance = 50.0f;  // 最大相机距离 (Maximum camera distance)
 static glm::quat camera_orientation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f);  // 相机方向四元数 (Camera orientation quaternion)
 
 // Camera interpolation variables
@@ -260,7 +262,7 @@ static void scroll_callback(GLFWwindow *window, double xoffset, double yoffset) 
     if (!camera_locked) {
         camera_distance -= yoffset * 0.5f;  // Zoom in/out
         if (camera_distance < 1.0f) camera_distance = 1.0f;  // Minimum distance
-        if (camera_distance > 50.0f) camera_distance = 50.0f;  // Maximum distance
+        if (camera_distance > camera_max_distance) camera_distance = camera_max_distance;  // Maximum distance
 
         // Update camera position based on quaternion
         glm::vec3 direction = camera_orientation * glm::vec3(0.0f, 0.0f, -1.0f);  // Forward direction
@@ -382,6 +384,12 @@ int main(int argc, char *argv[]) {  // 主函数，程序入口。
     TextureImage::Texture &handMetallicTex = TextureImage::Texture::loadTexture("hand_metallic", DATA_DIR"/hand-sculpture/textures/hand_metallic.jpg");
     TextureImage::Texture &handRoughnessTex = TextureImage::Texture::loadTexture("hand_roughness", DATA_DIR"/hand-sculpture/textures/hand_roughness.jpg");
     TextureImage::Texture &handAoTex = TextureImage::Texture::loadTexture("hand_ao", DATA_DIR"/hand-sculpture/textures/hand_ao.jpg");
+
+    // ===== 初始化天空盒 =====
+    Skybox::SkyboxRenderer skyboxRenderer;
+    if (!skyboxRenderer.initialize(DATA_DIR"/table_mountain_2_puresky_4k.exr")) {
+        std::cout << "Failed to initialize skybox" << std::endl;
+    }
 
 
     sr.setShaderInput(program, "in_position", "in_texcoord", "in_normal", "in_bone_index", "in_bone_weight");  // 设置着色器输入属性，与模型数据对应。
@@ -795,10 +803,18 @@ int main(int argc, char *argv[]) {  // 主函数，程序入口。
         glfwGetFramebufferSize(window, &width, &height);  // 获取帧缓冲区大小。
         ratio = width / (float) height;  // 计算宽高比。
 
-        glClearColor(0.5, 0.5, 0.5, 1.0);  // 设置清屏颜色为灰色。
+        glClearColor(0.0, 0.0, 0.0, 1.0);  // 设置清屏颜色为黑色（天空盒背景）。
 
         glViewport(0, 0, width, height);  // 设置视口。
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);  // 清空颜色和深度缓冲区。
+
+        // ===== 渲染天空盒 =====
+        // 禁用深度写入，渲染天空盒
+        glDepthMask(GL_FALSE);
+        glm::mat4 view_matrix = glm::lookAt(camera_eye, camera_center, camera_up);  // 计算视图矩阵。
+        glm::mat4 projection_matrix = glm::perspective(glm::radians(45.0f), ratio, 0.1f, 100.0f);  // 计算投影矩阵。
+        skyboxRenderer.render(view_matrix, projection_matrix);
+        glDepthMask(GL_TRUE);  // 重新启用深度写入
 
         // ===== 设置着色器和矩阵 =====
 
@@ -806,9 +822,9 @@ int main(int argc, char *argv[]) {  // 主函数，程序入口。
         // glm::fmat4 mvp = glm::ortho(-12.5f * ratio, 12.5f * ratio, -5.f, 20.f, -20.f, 20.f)  // 设置正交投影矩阵。
         //                  *
         //                  glm::lookAt(glm::fvec3(.0f, .0f, -1.f), glm::fvec3(.0f, .0f, .0f), glm::fvec3(.0f, 1.f, .0f));  // 设置观察矩阵，从(0,0,-1)看向(0,0,0)，上方向Y轴。
-        glm::fmat4 mvp = glm::perspective(glm::radians(45.0f), ratio, 0.1f, 100.0f)  // 设置透视投影矩阵。
+        glm::fmat4 mvp = projection_matrix  // 设置透视投影矩阵。
                          *
-                         glm::lookAt(camera_eye, camera_center, camera_up);  // 设置观察矩阵，使用相机参数。
+                         view_matrix;  // 使用之前计算的视图矩阵。
         glUniformMatrix4fv(glGetUniformLocation(program, "u_mvp"), 1, GL_FALSE, (const GLfloat *) &mvp);  // 传递MVP矩阵到着色器。
 
         // ===== 绑定纹理 =====
